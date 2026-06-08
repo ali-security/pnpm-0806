@@ -138,6 +138,7 @@ export interface ResolveDependenciesOptions {
   peersSuffixMaxLength: number
   minimumReleaseAge?: number
   minimumReleaseAgeExclude?: string[]
+  blockExoticSubdeps?: boolean
 }
 
 export interface ResolveDependencyTreeResult {
@@ -200,6 +201,7 @@ export async function resolveDependencyTree<T> (
     allPeerDepNames: new Set(),
     maximumPublishedBy: opts.minimumReleaseAge ? new Date(Date.now() - opts.minimumReleaseAge * 60 * 1000) : undefined,
     publishedByExclude: opts.minimumReleaseAgeExclude ? createPublishedByExclude(opts.minimumReleaseAgeExclude) : undefined,
+    blockExoticSubdeps: opts.blockExoticSubdeps,
   }
 
   function createPublishedByExclude (patterns: string[]): PackageVersionPolicy {

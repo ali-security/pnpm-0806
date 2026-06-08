@@ -167,6 +167,7 @@ export interface StrictInstallOptions {
   ci?: boolean
   minimumReleaseAge?: number
   minimumReleaseAgeExclude?: string[]
+  blockExoticSubdeps?: boolean
 }
 
 export type InstallOptions =
@@ -266,6 +267,7 @@ const defaults = (opts: InstallOptions): StrictInstallOptions => {
     excludeLinksFromLockfile: false,
     virtualStoreDirMaxLength: 120,
     peersSuffixMaxLength: 1000,
+    blockExoticSubdeps: false,
   } as StrictInstallOptions
 }
 
