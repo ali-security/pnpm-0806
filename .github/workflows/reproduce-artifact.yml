@@ -1,0 +1,135 @@
+name: Reproduce Artifact
+
+# Independently rebuilds the `pnpm` npm package from source at a given tag and
+# proves the result is identical to the version published on the public npm
+# registry (https://registry.npmjs.org/pnpm/-/pnpm-<version>.tgz).
+#
+# This is a supply-chain / reproducible-build check: it does NOT publish
+# anything. It mirrors the build steps from release.yml (pnpm install --force +
+# the package's own prepublishOnly), packs the tarball, and diffs it against the
+# public artifact both at the content level (per-file sha256 + mode) and at the
+# byte level (npm shasum / integrity).
+#
+# Dependencies are installed through a "time machine" registry pinned to the
+# tag's release timestamp, so the resolved dependency tree matches the state of
+# the world when the release was actually published.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published pnpm version to reproduce (npm dist-tag version)"
+        required: true
+        default: "10.19.0"
+      ref:
+        description: "Git ref (tag/branch/sha) to build from"
+        required: true
+        default: "v10.19.0"
+      require_byte_identity:
+        description: "Fail unless the .tgz is bit-for-bit identical (not only content-identical)"
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    steps:
+      # The comparison script (.github/scripts/compare-tarballs.mjs) lives on the
+      # default branch, so check it out at the workspace root. The actual build
+      # tree is checked out separately into ./source at the requested ref.
+      - name: Checkout tooling (default branch)
+        uses: actions/checkout@v5
+
+      - name: Checkout source at ${{ github.event.inputs.ref }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.ref }}
+          path: source
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.2.0
+        with:
+          standalone: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Configure time-machine registry pinned to the release date
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # Use the build ref's commit timestamp as the time-machine date, so
+          # dependency resolution reflects the registry state at release time.
+          commit_date="$(git log -1 --format=%cI HEAD)"
+          tm_date="$(date -u -d "$commit_date" +%Y-%m-%dT%H:%M:%S.000Z)"
+          echo "Pinning time-machine registry to: $tm_date"
+          cat > .npmrc <<EOF
+          registry=https://time-machines-npm.sealsecurity.io/
+          //time-machines-npm.sealsecurity.io/:_authToken=$tm_date
+          EOF
+
+      - name: pnpm install
+        working-directory: source
+        # --force mirrors release.yml: it pulls every platform artifact of
+        # @reflink/reflink, which bundle.ts bundles into the published tarball.
+        run: pnpm install --force
+
+      - name: Build the pnpm package tarball
+        id: build
+        working-directory: source
+        run: |
+          set -euo pipefail
+          # prepublishOnly == `pnpm compile && publish-packed --prune --dest=dist`.
+          # It produces pnpm/dist as a self-contained package (deps bundled into
+          # dist/node_modules, dependencies renamed to __dependencies) — exactly
+          # what `pnpm publish --filter=pnpm` uploads to the registry.
+          pnpm --filter=pnpm run prepublishOnly
+          mkdir -p "$GITHUB_WORKSPACE/built"
+          # Pack the prepared dist folder the same way `pnpm publish` would.
+          cd pnpm/dist
+          pnpm pack --pack-destination "$GITHUB_WORKSPACE/built"
+          built_tgz="$(ls "$GITHUB_WORKSPACE"/built/*.tgz | head -n1)"
+          echo "built_tgz=$built_tgz" >> "$GITHUB_OUTPUT"
+          echo "Built: $built_tgz"
+
+      - name: Download the public tarball + registry metadata
+        id: public
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/public"
+          curl -fsSL -o "$GITHUB_WORKSPACE/public/pnpm-${VERSION}.tgz" \
+            "https://registry.npmjs.org/pnpm/-/pnpm-${VERSION}.tgz"
+          # Pull the registry's recorded integrity + shasum to compare against.
+          meta="$(curl -fsSL "https://registry.npmjs.org/pnpm/${VERSION}")"
+          integrity="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).dist.integrity))' <<<"$meta")"
+          shasum="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).dist.shasum))' <<<"$meta")"
+          echo "public_tgz=$GITHUB_WORKSPACE/public/pnpm-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
+          echo "integrity=$integrity" >> "$GITHUB_OUTPUT"
+          echo "shasum=$shasum" >> "$GITHUB_OUTPUT"
+
+      - name: Compare built vs public artifact
+        run: |
+          node .github/scripts/compare-tarballs.mjs \
+            --built "${{ steps.build.outputs.built_tgz }}" \
+            --public "${{ steps.public.outputs.public_tgz }}" \
+            --expected-integrity "${{ steps.public.outputs.integrity }}" \
+            --expected-shasum "${{ steps.public.outputs.shasum }}" \
+            ${{ github.event.inputs.require_byte_identity == 'true' && '--require-byte-identity' || '' }}
+
+      - name: Upload tarballs for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproduced-artifacts
+          path: |
+            built/*.tgz
+            public/*.tgz
+          if-no-files-found: warn
