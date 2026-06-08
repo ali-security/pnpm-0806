@@ -151,7 +151,7 @@ test('fetch a big repository', async () => {
   const { filesIndex } = await fetch(createCafsStore(storeDir),
     {
       commit: 'a65fbf5a90f53c9d72fed4daaca59da50f074355',
-      repo: 'https://github.com/sveltejs/action-deploy-docs.git',
+      repo: 'https://github.com/benmccann/action-deploy-docs.git',
       type: 'git',
     }, {
       filesIndexFile: path.join(storeDir, 'index.json'),
