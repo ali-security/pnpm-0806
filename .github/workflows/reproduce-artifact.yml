@@ -96,6 +96,15 @@ jobs:
           # dist/node_modules, dependencies renamed to __dependencies) — exactly
           # what `pnpm publish --filter=pnpm` uploads to the registry.
           pnpm --filter=pnpm run prepublishOnly
+          # The install ran through the time-machine mirror, so its URL gets
+          # baked into pnpm's bookkeeping files (.modules.yaml, .pnpm/lock.yaml).
+          # Rewrite it back to the public npm registry before packing so the
+          # artifact carries the same registry provenance as the published one
+          # (and never references the internal mirror).
+          grep -rlF 'https://time-machines-npm.sealsecurity.io/' pnpm/dist 2>/dev/null \
+            | while IFS= read -r f; do
+                sed -i 's#https://time-machines-npm\.sealsecurity\.io/#https://registry.npmjs.org/#g' "$f"
+              done
           mkdir -p "$GITHUB_WORKSPACE/built"
           # After prepublishOnly the pnpm/ dir is in its publish-ready state:
           # deps hidden as __dependencies, production deps bundled into

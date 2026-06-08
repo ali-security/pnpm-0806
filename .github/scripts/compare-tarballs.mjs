@@ -54,23 +54,17 @@ function hashFile (file, algo, encoding) {
 //
 // pnpm writes a few internal state files into node_modules. They are packed
 // into the published tarball but contain data that can NEVER be reproduced
-// from source: wall-clock timestamps (the moment the original release ran) and
-// the registry URL that served the install. When we rebuild through the
-// time-machine mirror, those fields legitimately differ even though every
-// packaged dependency is byte-for-byte identical.
+// from source: wall-clock timestamps (the moment the original release ran),
+// non-deterministic list ordering, and mutable npm metadata (`tarball`/
+// `deprecated`) that depends on registry state at build time.
 //
-// For exactly these files we compare a normalized form: registry provenance is
-// mapped back to the public npm registry, wall-clock timestamps are dropped,
-// and order-insensitive lists are sorted. Everything else in the files must
-// still match. Any package code, license, or build output is NEVER normalized.
+// The registry-URL provenance is already fixed up in the build itself (the
+// time-machine mirror URL is rewritten to the public npm registry before
+// packing), so it is NOT handled here. For these files we compare a normalized
+// form: wall-clock timestamps are dropped, order-insensitive lists are sorted,
+// and mutable npm metadata is stripped. Everything else in the files must still
+// match. Any package code, license, or build output is NEVER normalized.
 // ---------------------------------------------------------------------------
-
-const TIME_MACHINE_ORIGIN = 'https://time-machines-npm.sealsecurity.io/'
-const NPM_ORIGIN = 'https://registry.npmjs.org/'
-
-function mapRegistry (s) {
-  return s.split(TIME_MACHINE_ORIGIN).join(NPM_ORIGIN)
-}
 
 function stableStringify (value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
@@ -105,12 +99,12 @@ function sortYamlListRuns (text) {
 }
 
 function normalizeModulesYaml (s) {
-  const lines = mapRegistry(s).split('\n').filter(l => !l.startsWith('prunedAt:'))
+  const lines = s.split('\n').filter(l => !l.startsWith('prunedAt:'))
   return sortYamlListRuns(lines.join('\n'))
 }
 
 function normalizeWorkspaceState (s) {
-  const obj = JSON.parse(mapRegistry(s))
+  const obj = JSON.parse(s)
   delete obj.lastValidatedTimestamp
   return stableStringify(obj)
 }
@@ -119,7 +113,7 @@ function normalizePnpmLockYaml (s) {
   // The explicit `tarball:` field is only emitted when the configured registry
   // differs from the tarball host (i.e. when building through the mirror).
   // Drop it from both sides; integrity already pins the exact bytes.
-  let out = mapRegistry(s).replace(/,\s*tarball:\s*[^,}\s]+/g, '')
+  let out = s.replace(/,\s*tarball:\s*[^,}\s]+/g, '')
   // `deprecated` is MUTABLE npm metadata (a maintainer can deprecate a version
   // long after it was published). A time machine hides newer versions but
   // cannot reconstruct point-in-time deprecation state, so this annotation can
@@ -248,7 +242,7 @@ function main () {
   const normalizedPaths = [...builtM.keys()].filter(k => builtM.get(k).normalized).sort()
   if (normalizedPaths.length) {
     console.log('Normalized pnpm bookkeeping files (compared after stripping wall-clock')
-    console.log('timestamps + mapping mirror registry -> public npm registry):')
+    console.log('timestamps, sorting unordered lists, and dropping mutable npm metadata):')
     for (const p of normalizedPaths) console.log(`  - ${p}`)
     console.log('')
   }
