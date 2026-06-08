@@ -61,15 +61,21 @@ jobs:
           node-version: 20
 
       - name: Configure time-machine registry pinned to the release date
-        working-directory: source
+        env:
+          VERSION: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          # Use the build ref's commit timestamp as the time-machine date, so
-          # dependency resolution reflects the registry state at release time.
-          commit_date="$(git log -1 --format=%cI HEAD)"
-          tm_date="$(date -u -d "$commit_date" +%Y-%m-%dT%H:%M:%S.000Z)"
-          echo "Pinning time-machine registry to: $tm_date"
-          cat > .npmrc <<EOF
+          # Pin the time machine to the exact moment pnpm@$VERSION was published
+          # to npm, so dependency resolution reflects the registry state at that
+          # instant. The registry's ISO timestamp is exactly the token format
+          # the time machine expects.
+          tm_date="$(curl -fsSL "https://registry.npmjs.org/pnpm" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).time[process.env.VERSION]))')"
+          echo "Pinning time-machine registry to pnpm@${VERSION} publish time: $tm_date"
+          # Write to the USER-level ~/.npmrc so EVERY pnpm/npm invocation uses it
+          # — including publish-packed's inner install, which runs with
+          # --ignore-workspace and would otherwise ignore a workspace .npmrc.
+          cat > "$HOME/.npmrc" <<EOF
           registry=https://time-machines-npm.sealsecurity.io/
           //time-machines-npm.sealsecurity.io/:_authToken=$tm_date
           EOF
