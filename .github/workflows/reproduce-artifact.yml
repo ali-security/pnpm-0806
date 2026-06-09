@@ -1,0 +1,89 @@
+name: Build Artifact
+
+# Builds the `pnpm` npm package tarball from the current checkout and uploads it
+# as a workflow artifact. It does NOT publish anything.
+#
+# Mirrors release.yml's build (pnpm install + the package's own prepublishOnly),
+# then packs pnpm/ — exactly what `pnpm publish --filter=pnpm` would upload.
+#
+# Dependencies are resolved through a "time machine" registry pinned to the
+# release timestamp of the version in pnpm/package.json. This is what makes the
+# bundled production dependencies under dist/node_modules (which publish-packed
+# installs with --no-lockfile, i.e. resolved fresh) match the versions that were
+# bundled in the originally published tarball, instead of whatever is latest
+# today. The mirror URL is rewritten back to the public npm registry before
+# packing so the artifact never references the internal mirror.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.2.0
+        with:
+          standalone: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Configure time-machine registry pinned to the release date
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./pnpm/package.json').version")"
+          # Pin to the exact moment pnpm@$version was published to npm, so
+          # dependency resolution reflects the registry state at that instant.
+          tm_date="$(curl -fsSL "https://registry.npmjs.org/pnpm" \
+            | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).time[process.argv[1]]))' "$version")"
+          echo "Pinning time-machine registry to pnpm@${version} publish time: $tm_date"
+          # Write to the USER-level ~/.npmrc so EVERY pnpm/npm invocation uses it
+          # — including publish-packed's inner install, which runs with
+          # --ignore-workspace and would otherwise ignore a workspace .npmrc.
+          cat > "$HOME/.npmrc" <<EOF
+          registry=https://time-machines-npm.sealsecurity.io/
+          //time-machines-npm.sealsecurity.io/:_authToken=$tm_date
+          EOF
+
+      - name: pnpm install
+        # --force mirrors release.yml: it pulls every platform artifact of
+        # @reflink/reflink, which bundle.ts bundles into the published tarball.
+        run: pnpm install --frozen-lockfile --force
+
+      - name: Build the pnpm package tarball
+        run: |
+          set -euo pipefail
+          # prepublishOnly == `pnpm compile && publish-packed --prune --dest=dist`.
+          # It leaves pnpm/ in its publish-ready state (deps bundled into
+          # dist/node_modules, dependencies renamed to __dependencies). Packing
+          # pnpm/ reproduces what `pnpm publish --filter=pnpm` uploads.
+          pnpm --filter=pnpm run prepublishOnly
+          # The install ran through the time-machine mirror, so its URL gets
+          # baked into pnpm's bookkeeping files (.modules.yaml, .pnpm/lock.yaml).
+          # Rewrite it back to the public npm registry before packing so the
+          # artifact carries the same registry provenance as the published one.
+          grep -rlF 'https://time-machines-npm.sealsecurity.io/' pnpm/dist 2>/dev/null \
+            | while IFS= read -r f; do
+                sed -i 's#https://time-machines-npm\.sealsecurity\.io/#https://registry.npmjs.org/#g' "$f"
+              done
+          mkdir -p "$GITHUB_WORKSPACE/built"
+          cd pnpm
+          pnpm pack --pack-destination "$GITHUB_WORKSPACE/built"
+
+      - name: Upload tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-tarball
+          path: built/*.tgz
+          if-no-files-found: error

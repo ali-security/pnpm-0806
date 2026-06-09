@@ -423,7 +423,7 @@ async function getFileIntegrity (filename: string) {
 test('fetch a big repository', async () => {
   process.chdir(tempy.directory())
 
-  const resolution = { tarball: 'https://codeload.github.com/sveltejs/action-deploy-docs/tar.gz/a65fbf5a90f53c9d72fed4daaca59da50f074355' }
+  const resolution = { tarball: 'https://codeload.github.com/benmccann/action-deploy-docs/tar.gz/a65fbf5a90f53c9d72fed4daaca59da50f074355' }
 
   const result = await fetch.gitHostedTarball(cafs, resolution, {
     filesIndexFile,

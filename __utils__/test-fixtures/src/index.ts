@@ -41,9 +41,27 @@ function copyAndRename (src: string, dest: string): void {
   for (const entry of entries) {
     const srcPath = path.join(src, entry)
     const destPath = path.join(dest, entry.startsWith('_') ? entry.substring(1) : entry)
-    const stats = fs.statSync(srcPath)
+    // Use lstat so symlinks are copied as symlinks rather than followed.
+    // Fixtures may contain a pnpm node_modules, whose layout is full of
+    // symlinks. Following them with statSync breaks on Windows (and on any
+    // dangling link) with ENOENT.
+    const stats = fs.lstatSync(srcPath)
 
-    if (stats.isDirectory()) {
+    if (stats.isSymbolicLink()) {
+      const target = fs.readlinkSync(srcPath)
+      // On Windows, directory links must be created as junctions; Node can only
+      // pick the right type if it can resolve the (possibly relative) target.
+      let type: 'junction' | 'file' | undefined
+      if (process.platform === 'win32') {
+        const resolved = path.resolve(path.dirname(srcPath), target)
+        type = fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() ? 'junction' : 'file'
+      }
+      try {
+        fs.symlinkSync(target, destPath, type)
+      } catch (err: unknown) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+      }
+    } else if (stats.isDirectory()) {
       // If the entry is a directory, recursively copy its contents
       if (!fs.existsSync(destPath)) {
         fs.mkdirSync(destPath)
