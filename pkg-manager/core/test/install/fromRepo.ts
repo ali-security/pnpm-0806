@@ -125,7 +125,9 @@ test('from a github repo with different name', async () => {
 test('a subdependency is from a github repo with different name', async () => {
   const project = prepareEmpty()
 
-  await addDependenciesToPackage({}, ['@pnpm.e2e/has-aliased-git-dependency'], testDefaults({ fastUnpack: false }))
+  // has-aliased-git-dependency has a git-hosted subdependency, which is blocked
+  // by the default blockExoticSubdeps (CVE-2025-69264); allow it for this test.
+  await addDependenciesToPackage({}, ['@pnpm.e2e/has-aliased-git-dependency'], testDefaults({ fastUnpack: false, blockExoticSubdeps: false }))
 
   const m = project.requireModule('@pnpm.e2e/has-aliased-git-dependency')
 

@@ -1072,6 +1072,7 @@ const _installInContext: InstallFunction = async (projects, ctx, opts) => {
       supportedArchitectures: opts.supportedArchitectures,
       peersSuffixMaxLength: opts.peersSuffixMaxLength,
       injectWorkspacePackages: opts.injectWorkspacePackages,
+      blockExoticSubdeps: opts.blockExoticSubdeps,
     }
   )
   if (!opts.include.optionalDependencies || !opts.include.devDependencies || !opts.include.dependencies) {

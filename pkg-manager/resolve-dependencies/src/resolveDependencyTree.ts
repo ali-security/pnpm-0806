@@ -131,6 +131,7 @@ export interface ResolveDependenciesOptions {
   workspacePackages: WorkspacePackages
   supportedArchitectures?: SupportedArchitectures
   peersSuffixMaxLength: number
+  blockExoticSubdeps?: boolean
 }
 
 export interface ResolveDependencyTreeResult {
@@ -190,6 +191,7 @@ export async function resolveDependencyTree<T> (
     missingPeersOfChildrenByPkgId: {},
     hoistPeers: autoInstallPeers || opts.dedupePeerDependents,
     allPeerDepNames: new Set(),
+    blockExoticSubdeps: opts.blockExoticSubdeps,
   }
 
   const resolveArgs: ImporterToResolve[] = importers.map((importer) => {

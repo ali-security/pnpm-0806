@@ -589,8 +589,10 @@ test('packages are placed in devDependencies even if they are present as non-dev
 test('updating package that has a github-hosted dependency', async () => {
   prepareEmpty()
 
-  const { updatedManifest: manifest } = await addDependenciesToPackage({}, ['@pnpm.e2e/has-github-dep@1'], testDefaults())
-  await addDependenciesToPackage(manifest, ['@pnpm.e2e/has-github-dep@latest'], testDefaults())
+  // has-github-dep has a git-hosted subdependency, which is blocked by the
+  // default blockExoticSubdeps (CVE-2025-69264); allow it for this test.
+  const { updatedManifest: manifest } = await addDependenciesToPackage({}, ['@pnpm.e2e/has-github-dep@1'], testDefaults({ blockExoticSubdeps: false }))
+  await addDependenciesToPackage(manifest, ['@pnpm.e2e/has-github-dep@latest'], testDefaults({ blockExoticSubdeps: false }))
 })
 
 test('updating package that has deps with peers', async () => {

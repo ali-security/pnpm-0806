@@ -182,6 +182,7 @@ export interface Config extends OptionsFromRootManifest {
   ignoreWorkspaceCycles?: boolean
   disallowWorkspaceCycles?: boolean
   packGzipLevel?: number
+  blockExoticSubdeps?: boolean
 
   registries: Registries
   sslConfigs: Record<string, SslConfig>
